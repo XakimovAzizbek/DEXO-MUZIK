@@ -95,6 +95,31 @@ html, body {
   z-index: 10;
 }
 
+.buffer-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  margin: -21px 0 0 -21px;
+  border: 3px solid rgba(255,255,255,0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.buffer-spinner.show {
+  opacity: 1;
+  animation: dexo-spin 0.8s linear infinite;
+}
+
+@keyframes dexo-spin {
+  to { transform: rotate(360deg); }
+}
+
 .mute-hint {
   position: absolute;
   top: 50%;

@@ -30,14 +30,38 @@ function showToast(text) {
   }, 2200);
 }
 
-function downloadFile(url, filename) {
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename || '';
-  a.target = '_blank';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+function downloadFile(url, filename, onDone) {
+  // A plain <a download> gets ignored by mobile browsers for media files
+  // (they just open the video/audio in a viewer instead of saving it).
+  // Fetching the bytes as a blob and saving that forces a real download.
+  fetch(url)
+    .then(res => {
+      if (!res.ok) throw new Error('network');
+      return res.blob();
+    })
+    .then(blob => {
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || '';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+      if (onDone) onDone(true);
+    })
+    .catch(() => {
+      // Fallback: if fetch fails (e.g. CORS), at least open the file so the
+      // user can save it manually instead of nothing happening.
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || '';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      if (onDone) onDone(false);
+    });
 }
 
 // Safari/iOS + most mobile browsers block autoplay with sound. Videos start
@@ -99,6 +123,15 @@ function buildReel(item) {
     loading.textContent = "Video ochilmadi: " + item.video;
   });
 
+  // Buffering spinner - shows while the video stalls waiting for data on a
+  // slow connection, hides as soon as it has enough to play smoothly.
+  const spinner = document.createElement('div');
+  spinner.className = 'buffer-spinner';
+  video.addEventListener('waiting', () => spinner.classList.add('show'));
+  video.addEventListener('stalled', () => spinner.classList.add('show'));
+  video.addEventListener('playing', () => spinner.classList.remove('show'));
+  video.addEventListener('canplay', () => spinner.classList.remove('show'));
+
   const overlay = document.createElement('div');
   overlay.className = 'reel-overlay';
 
@@ -124,17 +157,22 @@ function buildReel(item) {
     e.stopPropagation();
     popup.classList.remove('open');
     if (btn.dataset.action === 'music') {
-      downloadFile(encodeURI(item.music), item.music.split('/').pop());
       showToast('Musiqa yuklanmoqda...');
+      downloadFile(encodeURI(item.music), item.music.split('/').pop(), (ok) => {
+        showToast(ok ? 'Musiqa yuklandi ✓' : 'Musiqa ochildi, saqlab oling');
+      });
     } else {
-      downloadFile(encodeURI(item.video), item.video.split('/').pop());
       showToast('Video yuklanmoqda...');
+      downloadFile(encodeURI(item.video), item.video.split('/').pop(), (ok) => {
+        showToast(ok ? 'Video yuklandi ✓' : 'Video ochildi, saqlab oling');
+      });
     }
   });
 
   overlay.appendChild(menuBtn);
   reel.appendChild(bgVideo);
   reel.appendChild(video);
+  reel.appendChild(spinner);
   reel.appendChild(overlay);
   reel.appendChild(popup);
 
