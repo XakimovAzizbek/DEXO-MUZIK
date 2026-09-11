@@ -8,3 +8,7 @@ music: https://xakimovazizbek.github.io/DEXO-MUZIK/Ey%20do%20stim%20%20%20Botir%
 
 video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/2/VID_20260911_201359_481.mp4
 music: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/music3/Mull3.m4a
+
+
+video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/video4/lv_0_20260911213411.mp4
+music: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/music4/Sevmasang.Bor.Barhayot.Umarov.m4a
