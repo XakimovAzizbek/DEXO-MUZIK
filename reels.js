@@ -7,6 +7,7 @@ let items = [];
 let order = [];
 let currentIndex = 0;
 let currentReelEl = null;
+let userUnmuted = false; // becomes true after the first tap/swipe gesture
 
 function shuffle(arr) {
   const a = arr.slice();
@@ -26,29 +27,77 @@ function showToast(text) {
   setTimeout(() => {
     t.classList.remove('show');
     setTimeout(() => t.remove(), 300);
-  }, 1800);
+  }, 2200);
 }
 
 function downloadFile(url, filename) {
   const a = document.createElement('a');
   a.href = url;
   a.download = filename || '';
+  a.target = '_blank';
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+// Safari/iOS + most mobile browsers block autoplay with sound. Videos start
+// muted so they always autoplay, then unmute themselves the instant the user
+// interacts (tap or swipe) with the page.
+function tryPlay(video) {
+  video.muted = !userUnmuted;
+  const p = video.play();
+  if (p && p.catch) {
+    p.catch(() => {
+      // Autoplay still blocked (rare) - fall back to muted playback.
+      video.muted = true;
+      video.play().catch(() => {});
+    });
+  }
+}
+
+function unmuteAll() {
+  if (userUnmuted) return;
+  userUnmuted = true;
+  if (currentReelEl) {
+    currentReelEl.video.muted = false;
+  }
 }
 
 function buildReel(item) {
   const reel = document.createElement('div');
   reel.className = 'reel';
 
+  // Blurred backdrop fills the screen no matter the source ratio
+  const bgVideo = document.createElement('video');
+  bgVideo.className = 'bg-video';
+  bgVideo.src = encodeURI(item.video);
+  bgVideo.loop = true;
+  bgVideo.muted = true;
+  bgVideo.playsInline = true;
+  bgVideo.setAttribute('playsinline', '');
+  bgVideo.preload = 'auto';
+
+  // Main video always shows the full untouched frame (contain), centered
   const video = document.createElement('video');
-  video.src = item.video;
+  video.className = 'main-video';
+  video.src = encodeURI(item.video);
   video.loop = true;
-  video.autoplay = true;
   video.playsInline = true;
-  video.muted = false;
+  video.setAttribute('playsinline', '');
+  video.setAttribute('webkit-playsinline', '');
+  video.muted = !userUnmuted;
+  video.preload = 'auto';
   video.controls = false;
+
+  // Keep the blurred backdrop synced with the main video
+  video.addEventListener('play', () => { bgVideo.currentTime = video.currentTime; bgVideo.play().catch(() => {}); });
+  video.addEventListener('pause', () => bgVideo.pause());
+  video.addEventListener('seeked', () => { bgVideo.currentTime = video.currentTime; });
+
+  video.addEventListener('error', () => {
+    loading.style.display = 'block';
+    loading.textContent = "Video ochilmadi: " + item.video;
+  });
 
   const overlay = document.createElement('div');
   overlay.className = 'reel-overlay';
@@ -75,35 +124,37 @@ function buildReel(item) {
     e.stopPropagation();
     popup.classList.remove('open');
     if (btn.dataset.action === 'music') {
-      downloadFile(item.music, item.music.split('/').pop());
+      downloadFile(encodeURI(item.music), item.music.split('/').pop());
       showToast('Musiqa yuklanmoqda...');
     } else {
-      downloadFile(item.video, item.video.split('/').pop());
+      downloadFile(encodeURI(item.video), item.video.split('/').pop());
       showToast('Video yuklanmoqda...');
     }
   });
 
   overlay.appendChild(menuBtn);
+  reel.appendChild(bgVideo);
   reel.appendChild(video);
   reel.appendChild(overlay);
   reel.appendChild(popup);
 
   reel.addEventListener('click', (e) => {
     if (e.target.closest('.menu-btn') || e.target.closest('.menu-popup')) return;
-    if (video.paused) video.play(); else video.pause();
+    unmuteAll();
+    if (video.paused) tryPlay(video); else video.pause();
   });
 
-  return { reel, video, popup };
+  return { reel, video, bgVideo, popup };
 }
 
 function renderCurrent() {
   container.innerHTML = '';
   const item = items[order[currentIndex]];
-  const { reel, video } = buildReel(item);
-  reel.style.transform = 'translateY(0)';
-  container.appendChild(reel);
-  currentReelEl = { reel, video };
-  video.play().catch(() => {});
+  const built = buildReel(item);
+  built.reel.style.transform = 'translateY(0)';
+  container.appendChild(built.reel);
+  currentReelEl = built;
+  tryPlay(built.video);
 }
 
 function nextRandom() {
@@ -125,15 +176,16 @@ function transitionTo(direction) {
   if (!currentReelEl) return;
   const oldReel = currentReelEl.reel;
   currentReelEl.video.pause();
+  currentReelEl.bgVideo.pause();
 
   const item = items[order[currentIndex]];
-  const { reel, video } = buildReel(item);
+  const built = buildReel(item);
 
-  reel.style.transform = direction === 'up' ? 'translateY(100%)' : 'translateY(-100%)';
-  container.appendChild(reel);
+  built.reel.style.transform = direction === 'up' ? 'translateY(100%)' : 'translateY(-100%)';
+  container.appendChild(built.reel);
 
   requestAnimationFrame(() => {
-    reel.style.transform = 'translateY(0)';
+    built.reel.style.transform = 'translateY(0)';
     oldReel.style.transform = direction === 'up' ? 'translateY(-100%)' : 'translateY(100%)';
   });
 
@@ -141,8 +193,8 @@ function transitionTo(direction) {
     oldReel.remove();
   }, 380);
 
-  currentReelEl = { reel, video };
-  video.play().catch(() => {});
+  currentReelEl = built;
+  tryPlay(built.video);
 }
 
 // Swipe handling
@@ -151,6 +203,7 @@ let touchEndY = 0;
 
 container.addEventListener('touchstart', (e) => {
   touchStartY = e.touches[0].clientY;
+  unmuteAll();
 }, { passive: true });
 
 container.addEventListener('touchend', (e) => {
