@@ -1,10 +1,3 @@
-video: video1.mp4
-music: music1.mp3
+video: https://xakimovazizbek.github.io/DEXO-MUZIK/lv_0_20260911153614.mp4
+music: https://xakimovazizbek.github.io/DEXO-MUZIK/BOBUR%20ft%20XUDONAZAR%20%20%20MANI%20YONDIRDI%20BU%20ISHQ.mp3
 
-
-video: video2.mp4
-music: music2.mp3
-
-
-video: video3.mp4
-music: music3.mp3
