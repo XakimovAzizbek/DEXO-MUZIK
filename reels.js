@@ -64,15 +64,18 @@ function downloadFile(url, filename, onDone) {
     });
 }
 
-// Safari/iOS + most mobile browsers block autoplay with sound. Videos start
-// muted so they always autoplay, then unmute themselves the instant the user
-// interacts (tap or swipe) with the page.
+// Try to autoplay WITH sound immediately. Most mobile browsers block this
+// unless the user has already interacted with the page at least once, in
+// which case they silently force it back to muted - that's a browser/OS
+// policy, not something a website can override. To get sound as early as
+// possible we still attempt unmuted first, and unmute the instant ANY user
+// interaction happens anywhere on the page (not just a tap on the video).
 function tryPlay(video) {
-  video.muted = !userUnmuted;
+  video.muted = false;
   const p = video.play();
   if (p && p.catch) {
     p.catch(() => {
-      // Autoplay still blocked (rare) - fall back to muted playback.
+      // Blocked - fall back to muted autoplay, will unmute on first gesture.
       video.muted = true;
       video.play().catch(() => {});
     });
@@ -84,22 +87,27 @@ function unmuteAll() {
   userUnmuted = true;
   if (currentReelEl) {
     currentReelEl.video.muted = false;
+    currentReelEl.video.play().catch(() => {});
   }
 }
 
-function buildReel(item) {
+// Catch the very first interaction anywhere on the page (tap, click, key,
+// scroll) as early as possible so sound turns on immediately, not only
+// when the user happens to tap directly on the video area.
+['touchstart', 'pointerdown', 'click', 'keydown', 'scroll'].forEach(evt => {
+  document.addEventListener(evt, unmuteAll, { passive: true, capture: true });
+});
+
+function buildReel(item, isCurrent) {
   const reel = document.createElement('div');
   reel.className = 'reel';
 
-  // Blurred backdrop fills the screen no matter the source ratio
-  const bgVideo = document.createElement('video');
-  bgVideo.className = 'bg-video';
-  bgVideo.src = encodeURI(item.video);
-  bgVideo.loop = true;
-  bgVideo.muted = true;
-  bgVideo.playsInline = true;
-  bgVideo.setAttribute('playsinline', '');
-  bgVideo.preload = 'auto';
+  // Blurred backdrop - instead of streaming the video file a second time
+  // (which doubled network usage and made slow connections worse), we grab
+  // one frame from the main video locally with canvas and blur that as a
+  // background image. Zero extra network cost.
+  const bgLayer = document.createElement('div');
+  bgLayer.className = 'bg-video';
 
   // Main video always shows the full untouched frame (contain), centered
   const video = document.createElement('video');
@@ -109,14 +117,32 @@ function buildReel(item) {
   video.playsInline = true;
   video.setAttribute('playsinline', '');
   video.setAttribute('webkit-playsinline', '');
-  video.muted = !userUnmuted;
-  video.preload = 'auto';
+  video.muted = false;
+  // Only the video the user is actually watching downloads eagerly;
+  // everything else stays lightweight until it becomes current.
+  video.preload = isCurrent ? 'auto' : 'metadata';
+  if (isCurrent && 'fetchPriority' in video) video.fetchPriority = 'high';
   video.controls = false;
 
-  // Keep the blurred backdrop synced with the main video
-  video.addEventListener('play', () => { bgVideo.currentTime = video.currentTime; bgVideo.play().catch(() => {}); });
-  video.addEventListener('pause', () => bgVideo.pause());
-  video.addEventListener('seeked', () => { bgVideo.currentTime = video.currentTime; });
+  // Capture a single frame locally (no network cost) to use as the blurred
+  // backdrop, as soon as there's enough data to draw one.
+  let bgCaptured = false;
+  function captureBg() {
+    if (bgCaptured || video.videoWidth === 0) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 160;
+      canvas.height = 90;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      bgLayer.style.backgroundImage = `url(${canvas.toDataURL('image/jpeg', 0.5)})`;
+      bgCaptured = true;
+    } catch (err) {
+      // Cross-origin canvas taint or similar - just skip the backdrop.
+    }
+  }
+  video.addEventListener('loadeddata', captureBg);
+  video.addEventListener('playing', captureBg);
 
   video.addEventListener('error', () => {
     loading.style.display = 'block';
@@ -170,7 +196,7 @@ function buildReel(item) {
   });
 
   overlay.appendChild(menuBtn);
-  reel.appendChild(bgVideo);
+  reel.appendChild(bgLayer);
   reel.appendChild(video);
   reel.appendChild(spinner);
   reel.appendChild(overlay);
@@ -182,13 +208,13 @@ function buildReel(item) {
     if (video.paused) tryPlay(video); else video.pause();
   });
 
-  return { reel, video, bgVideo, popup };
+  return { reel, video, popup };
 }
 
 function renderCurrent() {
   container.innerHTML = '';
   const item = items[order[currentIndex]];
-  const built = buildReel(item);
+  const built = buildReel(item, true);
   built.reel.style.transform = 'translateY(0)';
   container.appendChild(built.reel);
   currentReelEl = built;
@@ -214,10 +240,9 @@ function transitionTo(direction) {
   if (!currentReelEl) return;
   const oldReel = currentReelEl.reel;
   currentReelEl.video.pause();
-  currentReelEl.bgVideo.pause();
 
   const item = items[order[currentIndex]];
-  const built = buildReel(item);
+  const built = buildReel(item, true);
 
   built.reel.style.transform = direction === 'up' ? 'translateY(100%)' : 'translateY(-100%)';
   container.appendChild(built.reel);
@@ -241,7 +266,6 @@ let touchEndY = 0;
 
 container.addEventListener('touchstart', (e) => {
   touchStartY = e.touches[0].clientY;
-  unmuteAll();
 }, { passive: true });
 
 container.addEventListener('touchend', (e) => {
