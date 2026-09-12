@@ -1,14 +1,2 @@
-video: https://xakimovazizbek.github.io/DEXO-MUZIK/lv_0_20260911153614.mp4
-music: https://xakimovazizbek.github.io/DEXO-MUZIK/BOBUR%20ft%20XUDONAZAR%20%20%20MANI%20YONDIRDI%20BU%20ISHQ.mp3
-
-
-video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/1/lv_0_20260911155842.mp4
-music: https://xakimovazizbek.github.io/DEXO-MUZIK/Ey%20do%20stim%20%20%20Botir%20Qodirov.mp3
-
-
-video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/2/VID_20260911_201359_481.mp4
-music: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/music3/Mull3.m4a
-
-
-video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/video4/lv_0_20260911213411.mp4
-music: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/music4/Sevmasang.Bor.Barhayot.Umarov.m4a
+video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/video5/lv_0_20260912111100.mp4
+music: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/music5/Meni.sev.Yorqinxo.ja.Umarov.m4a
