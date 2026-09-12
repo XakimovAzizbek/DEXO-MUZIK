@@ -1,2 +1,6 @@
 video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/video5/lv_0_20260912111100.mp4
 music: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/music5/Meni.sev.Yorqinxo.ja.Umarov.m4a
+
+
+video: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/video6/lv_0_20260912113237.mp4
+music: https://github.com/XakimovAzizbek/DEXO-MUZIK/releases/download/music6/Sen_eding_o_sha_xayolim_Olgan_yuragimni_pora_aylagan_hama.m4a
