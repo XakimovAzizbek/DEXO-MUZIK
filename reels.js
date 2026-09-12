@@ -4,18 +4,30 @@ const container = document.getElementById('reels-container');
 const loading = document.getElementById('loading');
 
 let items = [];
-let order = [];
-let currentIndex = 0;
-let currentReelEl = null;
 let userUnmuted = false; // becomes true after the first tap/swipe gesture
 
-function shuffle(arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+// --- History + slot cache -------------------------------------------------
+// history[pos] = index into items[] that was shown at position "pos" in the
+// sequence the user has scrolled through. historyPos is where they are now.
+// slots[pos] = the already-built DOM/video for that position, kept alive in
+// a small window around historyPos so that:
+//   - swiping back to a video already seen reuses the same element instantly
+//     (no reload / no loading screen again)
+//   - the next video (historyPos + 1) is built and starts loading in the
+//     background while the current one is still playing, so it's ready the
+//     moment the user swipes to it
+let history = [];
+let historyPos = -1;
+let slots = {};
+let currentReelEl = null;
+
+function randomIndex(avoidIndex) {
+  if (items.length === 1) return 0;
+  let idx;
+  do {
+    idx = Math.floor(Math.random() * items.length);
+  } while (idx === avoidIndex);
+  return idx;
 }
 
 function showToast(text) {
@@ -98,7 +110,12 @@ function unmuteAll() {
   document.addEventListener(evt, unmuteAll, { passive: true, capture: true });
 });
 
-function buildReel(item, isCurrent) {
+// mode: 'current' (being watched right now - loads eagerly, high priority)
+//       'preload' (the next video - loads eagerly in the background so it's
+//                  ready in time, but stays paused/muted and invisible)
+//       'idle'    (kept alive only for instant back-navigation reuse; no
+//                  extra loading effort beyond what it already buffered)
+function buildReel(item, mode) {
   const reel = document.createElement('div');
   reel.className = 'reel';
 
@@ -117,11 +134,12 @@ function buildReel(item, isCurrent) {
   video.playsInline = true;
   video.setAttribute('playsinline', '');
   video.setAttribute('webkit-playsinline', '');
-  video.muted = false;
-  // Only the video the user is actually watching downloads eagerly;
-  // everything else stays lightweight until it becomes current.
-  video.preload = isCurrent ? 'auto' : 'metadata';
-  if (isCurrent && 'fetchPriority' in video) video.fetchPriority = 'high';
+  video.muted = true; // stays muted until it actually becomes the current one
+  // The current video, and the very next one, load eagerly in the
+  // background so playback is instant the moment the user swipes to it.
+  // Anything further away stays lightweight until it's actually needed.
+  video.preload = (mode === 'current' || mode === 'preload') ? 'auto' : 'metadata';
+  if (mode === 'current' && 'fetchPriority' in video) video.fetchPriority = 'high';
   video.controls = false;
 
   // Capture a single frame locally (no network cost) to use as the blurred
@@ -211,42 +229,85 @@ function buildReel(item, isCurrent) {
   return { reel, video, popup };
 }
 
-function renderCurrent() {
-  container.innerHTML = '';
-  const item = items[order[currentIndex]];
-  const built = buildReel(item, true);
-  built.reel.style.transform = 'translate3d(0,0,0)';
-  container.appendChild(built.reel);
-  currentReelEl = built;
-  tryPlay(built.video);
-}
+// Get the slot at `pos`, building it if it doesn't exist yet. `mode` only
+// matters the first time a slot is built (it decides how eagerly its video
+// loads); reusing an existing slot never rebuilds or reloads it.
+function ensureSlot(pos, mode) {
+  if (pos < 0) return null;
+  if (slots[pos]) return slots[pos];
 
-function nextRandom() {
-  currentIndex++;
-  if (currentIndex >= order.length) {
-    order = shuffle(order);
-    currentIndex = 0;
+  let itemIndex;
+  if (pos < history.length) {
+    itemIndex = history[pos];
+  } else {
+    itemIndex = randomIndex(pos > 0 ? history[pos - 1] : null);
+    history[pos] = itemIndex;
   }
-  transitionTo('up');
-}
 
-function prevRandom() {
-  currentIndex--;
-  if (currentIndex < 0) currentIndex = 0;
-  transitionTo('down');
-}
-
-function transitionTo(direction) {
-  if (!currentReelEl) return;
-  const oldReel = currentReelEl.reel;
-  currentReelEl.video.pause();
-
-  const item = items[order[currentIndex]];
-  const built = buildReel(item, true);
-
+  const built = buildReel(items[itemIndex], mode);
   built.reel.style.transition = 'none';
-  built.reel.style.transform = direction === 'up' ? 'translate3d(0,100%,0)' : 'translate3d(0,-100%,0)';
+  built.reel.style.transform = `translate3d(0, ${(pos - historyPos) * 100}%, 0)`;
   container.appendChild(built.reel);
+  // Force layout so the transform above is committed before anything else
+  // touches this element (avoids a flash at the wrong position).
+  void built.reel.offsetHeight;
+  built.reel.style.transition = '';
+
+  slots[pos] = built;
+  return built;
+}
+
+// Keep only historyPos-1 .. historyPos+1 alive; anything further gets its
+// video fully released (so memory/network isn't wasted on far-away reels),
+// and make sure the immediate neighbors exist (building the "next" one is
+// exactly the background preloading the user asked for).
+function settleSlots() {
+  Object.keys(slots).forEach(k => {
+    const pos = Number(k);
+    if (pos === historyPos) return;
+    const rel = pos - historyPos;
+    const s = slots[pos];
+    if (Math.abs(rel) > 1) {
+      s.video.pause();
+      s.video.removeAttribute('src');
+      s.video.load();
+      s.reel.remove();
+      delete slots[pos];
+    } else {
+      s.reel.style.transition = 'none';
+      s.reel.style.transform = `translate3d(0, ${rel * 100}%, 0)`;
+      void s.reel.offsetHeight;
+      s.reel.style.transition = '';
+    }
+  });
+
+  ensureSlot(historyPos + 1, 'preload');
+  if (historyPos - 1 >= 0) ensureSlot(historyPos - 1, 'idle');
+}
+
+function start() {
+  historyPos = 0;
+  const cur = ensureSlot(0, 'current');
+  cur.reel.style.transform = 'translate3d(0,0,0)';
+  currentReelEl = cur;
+  tryPlay(cur.video);
+  settleSlots();
+}
+
+function goTo(toPos, direction) {
+  if (toPos < 0) return;
+  const fromBuilt = slots[historyPos];
+  if (!fromBuilt) return;
+
+  // Already preloaded (or cached from before) - this is what makes both
+  // directions instant instead of showing a loading screen again.
+  const toBuilt = ensureSlot(toPos, toPos > historyPos ? 'preload' : 'idle');
+
+  fromBuilt.video.pause();
+
+  toBuilt.reel.style.transition = 'none';
+  toBuilt.reel.style.transform = direction === 'up' ? 'translate3d(0,100%,0)' : 'translate3d(0,-100%,0)';
+  void toBuilt.reel.offsetHeight;
 
   // Double rAF: the first frame just commits the starting position (no
   // transition yet), the second frame re-enables the transition and moves
@@ -254,18 +315,26 @@ function transitionTo(direction) {
   // the start frame, which is what caused the jerky snap before.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      built.reel.style.transition = '';
-      built.reel.style.transform = 'translate3d(0,0,0)';
-      oldReel.style.transform = direction === 'up' ? 'translate3d(0,-100%,0)' : 'translate3d(0,100%,0)';
+      toBuilt.reel.style.transition = '';
+      toBuilt.reel.style.transform = 'translate3d(0,0,0)';
+      fromBuilt.reel.style.transform = direction === 'up' ? 'translate3d(0,-100%,0)' : 'translate3d(0,100%,0)';
     });
   });
 
-  setTimeout(() => {
-    oldReel.remove();
-  }, 340);
+  historyPos = toPos;
+  currentReelEl = toBuilt;
+  tryPlay(toBuilt.video);
 
-  currentReelEl = built;
-  tryPlay(built.video);
+  setTimeout(settleSlots, 340);
+}
+
+function nextRandom() {
+  goTo(historyPos + 1, 'up');
+}
+
+function prevRandom() {
+  if (historyPos <= 0) return;
+  goTo(historyPos - 1, 'down');
 }
 
 // Swipe handling
@@ -315,9 +384,8 @@ fetch('reels.txt')
       loading.textContent = "reels.txt bo'sh yoki topilmadi";
       return;
     }
-    order = shuffle(items.map((_, i) => i));
     loading.style.display = 'none';
-    renderCurrent();
+    start();
   })
   .catch(() => {
     loading.textContent = 'reels.txt yuklashda xatolik';
