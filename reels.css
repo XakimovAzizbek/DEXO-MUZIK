@@ -51,7 +51,10 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: #000;
-  transition: transform 0.35s ease;
+  will-change: transform;
+  backface-visibility: hidden;
+  transform: translate3d(0, 0, 0);
+  transition: transform 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 /* Blurred backdrop layer - fills the whole screen regardless of the video's

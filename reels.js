@@ -215,7 +215,7 @@ function renderCurrent() {
   container.innerHTML = '';
   const item = items[order[currentIndex]];
   const built = buildReel(item, true);
-  built.reel.style.transform = 'translateY(0)';
+  built.reel.style.transform = 'translate3d(0,0,0)';
   container.appendChild(built.reel);
   currentReelEl = built;
   tryPlay(built.video);
@@ -244,17 +244,25 @@ function transitionTo(direction) {
   const item = items[order[currentIndex]];
   const built = buildReel(item, true);
 
-  built.reel.style.transform = direction === 'up' ? 'translateY(100%)' : 'translateY(-100%)';
+  built.reel.style.transition = 'none';
+  built.reel.style.transform = direction === 'up' ? 'translate3d(0,100%,0)' : 'translate3d(0,-100%,0)';
   container.appendChild(built.reel);
 
+  // Double rAF: the first frame just commits the starting position (no
+  // transition yet), the second frame re-enables the transition and moves
+  // to the final position - this guarantees the browser never skips/merges
+  // the start frame, which is what caused the jerky snap before.
   requestAnimationFrame(() => {
-    built.reel.style.transform = 'translateY(0)';
-    oldReel.style.transform = direction === 'up' ? 'translateY(-100%)' : 'translateY(100%)';
+    requestAnimationFrame(() => {
+      built.reel.style.transition = '';
+      built.reel.style.transform = 'translate3d(0,0,0)';
+      oldReel.style.transform = direction === 'up' ? 'translate3d(0,-100%,0)' : 'translate3d(0,100%,0)';
+    });
   });
 
   setTimeout(() => {
     oldReel.remove();
-  }, 380);
+  }, 340);
 
   currentReelEl = built;
   tryPlay(built.video);
